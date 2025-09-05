@@ -1,4 +1,4 @@
-name: iOS Build
+name: iOS Build (Xcode)
 
 on:
   push:
@@ -22,11 +22,63 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS IPA (unsigned)
-        run: flutter build ipa --release --no-codesign
+      - name: Generate missing platform folders
+        run: flutter create .
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+          cd ..
+
+      - name: Create ExportOptions.plist
+        run: |
+          cat <<EOF > ios/ExportOptions.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+            <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>compileBitcode</key>
+              <false/>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>destination</key>
+              <string>export</string>
+            </dict>
+          </plist>
+          EOF
+
+      - name: Build with Xcode
+        run: |
+          cd ios
+          # Clean previous builds
+          xcodebuild clean \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release
+
+          # Build archive without signing
+          xcodebuild archive \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath $PWD/build/Runner.xcarchive \
+            CODE_SIGNING_ALLOWED=NO
+
+          # Export unsigned IPA
+          xcodebuild -exportArchive \
+            -archivePath $PWD/build/Runner.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath $PWD/build/ios
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-build
-          path: build/ios/ipa/*.ipa
+          path: ios/build/ios/*.ipa
